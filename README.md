@@ -29,6 +29,8 @@ conda deactivate
 * Create main conda environment to run the other tools:
 ```
 conda create -n meta python=3.6 bbmap parallel itsxpress blast biom-format git
+conda activate meta
+conda install scipy matplotlib pandas seaborn
 ```
 * Clone this repository and take note of its location on your system:
 ```
