@@ -44,3 +44,5 @@ Files needed:
 * mapping file (or the metadata file) properly formated for QIIME1 (http://qiime.org/documentation/file_formats.html#metadata-mapping-files)
 * Fastq files
 
+The best way to run the pipeline in its current iteration is to open the script ```metagenomique_local_itsxpress.sh``` into a text editor (like gedit or sublime text), modify the paths in the ```Used Defined``` section and copy/paste each section in a terminal.
+
