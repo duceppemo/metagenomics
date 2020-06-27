@@ -33,31 +33,27 @@
 
 #Base directory for your current analysis
 #all output files will be inside
-export baseDir='/media/2TB_NVMe/pirl_2020-02-20_COI_F_Set1_2017'
+export baseDir=/home/marco/Desktop/meta/analysis
 
 #original fastq files
-fastq=/media/30tb_raid10/data/PIRL/2020-02-20_COI_F_Set1_2017
+fastq=/home/marco/Desktop/meta/fastq
 
 # Maximum CPUs to use
-cpu="48" #must match the "-pe smp" value at the begining of the script
+cpu="16" #must match the "-pe smp" value at the begining of the script
 
 #Where all scripts are
-export scripts=""${HOME}"/scripts/metagenomics"
+export scripts=/home/marco/prog/metagenomics
 
 #barcode information for all samples
-barcode=""${HOME}"/barcodes/barcodes.txt"
-
-#QIIME qiime_metadata custom fields
-#add the column header to the variable. Use as many as needed.
-customFields=("TrapType" "Lure" "CollectionDate" "Province" "City")
+metadata=/home/marco/Desktop/meta/fastq/metadata.tsv
 
 #Which region to analyze
-region=COI
+#region=COI
 # region="ITS2"
-# region="ITS1F"
+region="ITS1F"
 
 #UNITE database
-unite="/media/30tb_raid10/db/UNITE"
+unite=/home/marco/Desktop/meta/unite.fasta
 
 
 #######################
@@ -112,19 +108,12 @@ echo "This analysis is going to use the following programs:" | tee -a "$log"
 
 
 # Version control
-# Mothur
-v=$(mothur --version | grep version | cut -d "=" -f 2)
-echo "Mothur v"${v}"" | tee -a "$log"
 
 # QIIME
-source activate qiime1
+conda activate qiime1
 v=$(print_qiime_config.py -t | grep 'QIIME script version' | cut -d $'\t' -f 2)
 echo "QIIME v"${v}"" | tee -a "$log"
-source deactivate
-
-# ITSx
-v=$(ITSx --version 2>&1 | grep Version | cut -d " " -f 2)
-echo "ITSx v"${v}"" | tee -a "$log"
+conda deactivate
 
 # ITSxpress
 # source activate qiime2-2019.10
@@ -134,7 +123,7 @@ v=$(biom --version | cut -d " " -f 3)
 echo "biom v"${v}"" | tee -a "$log"
 
 # Python
-v=$(python3 --version | cut -d " " -f 2)
+v=$(python3 --version 2>&1 | cut -d " " -f 2)
 echo "python v"${v}"" | tee -a "$log"
 
 
@@ -180,6 +169,8 @@ rm -rf "$renamedFastq"
 #            #
 ##############
 
+#######  This section is just for COI  ##########
+
 
 # Create folder to store data
 [ -d "${trimmed}"/length_distribution/raw ] || mkdir -p "${trimmed}"/length_distribution/raw
@@ -189,7 +180,7 @@ function check_length()
 {
     sample=$(basename "$1" '.fastq.gz')
 
-    readlength.sh -Xmx440g \
+    readlength.sh \
     bin=10 \
     max=600 \
     in="$1" \
@@ -206,7 +197,7 @@ find "${modifiedFastq}" -type f -name "*.fastq.gz" -name "*"${region}"*" \
             'check_length {}'
 
 python3 "${scripts}"/read_length_distribution.py \
-    "${trimmed}"/length_distribution/raw \
+    "${trimmed}"/length_distribution \
     "${trimmed}"/length_distribution/raw
 
 # Cleanup
@@ -219,11 +210,11 @@ function size_select()
 {
     sample=$(basename "$1" '.fastq.gz')
 
-    bbduk.sh -Xmx440g \
+    bbduk.sh \
         in="$1" \
         out="${trimmed}"/"${sample}".fastq.gz \
         qtrim=lr trimq=10 \
-        minlen=430 \
+        minlen=200 \
         maxlen=480 \
         threads=4 
 }
@@ -256,7 +247,7 @@ find "${trimmed}"/length_distribution -name "*.tsv" -exec rm {} \;
 
 #######################
 #                     #
-#        QIIME        #
+#    itsxpress        #
 #                     #
 #######################
 
@@ -270,52 +261,49 @@ function find_ITS()
     itsxpress \
         --fastq "$1" \
         --single_end \
-        --outfile "${trimmed}"/fastq/"${sample}".fastq.gz \
+        --outfile "${baseDir}"/itsxpress/"${sample}".fastq.gz \
         --region ITS1 \
         --taxa Fungi \
         --cluster_id 0.995 \
-        --log "${trimmed}"/fastq/itsxpress/"${sample}".log \
-        --threads 48
+        --log "${baseDir}"/itsxpress/"${sample}".log \
+        --threads 4
 }
 
 export -f find_ITS
 
-[ -d "${trimmed}"/fastq/itsxpress ] || mkdir -p "${trimmed}"/fastq/itsxpress
+[ -d "${baseDir}"/itsxpress ] || mkdir -p "${baseDir}"/itsxpress
 
-source activate qiime2-2019.10
-
+# find "${trimmed}" -type f -name "*.fastq.gz" -name "*"${region}"*" \
 find "${modifiedFastq}" -type f -name "*.fastq.gz" -name "*"${region}"*" \
 | parallel  --bar \
             --env find_ITS1 \
-            --env trimmed \
-            --jobs 4 \
+            --env baseDir \
+            --jobs $(("$cpu"/4)) \
             'find_ITS {}'
-
-source deactivate
 
 # Convert fastq to fasta
 function fastq2fasta()
 {
   sample=$(basename "$1" ".fastq.gz")
-  zcat "$1" | sed -n '1~4s/^@/>/p;2~4p' > "${trimmed}"/fasta/"${sample}".fasta
+  zcat "$1" | sed -n '1~4s/^@/>/p;2~4p' > "${baseDir}"/fasta/"${sample}".fasta
 }
 
 export -f fastq2fasta
 
-[ -d "${trimmed}"/fasta ] || mkdir -p "${trimmed}"/fasta
+[ -d "${baseDir}"/fasta ] || mkdir -p "${baseDir}"/fasta
 
-find "${trimmed}"/fastq -type f -name "*.fastq*" -name "*"${region}"*" \
+find "${baseDir}"/fastq -type f -name "*.fastq*" -name "*"${region}"*" \
 | parallel --bar --jobs "$cpu" --env fastq2fasta 'fastq2fasta {}'
 
 # Remove second part of fasta headers
-find "${trimmed}"/fasta -type f -name "*.fasta" -name "*"${region}"*" \
+find "${baseDir}"/fasta -type f -name "*.fasta" -name "*"${region}"*" \
 | parallel --bar sed -i 's/%[^:]*//' {}
 
 # Remove empty sequences
-find "${trimmed}"/fasta -type f -name "*.fasta" -name "*"${region}"*" \
+find "${baseDir}"/fasta -type f -name "*.fasta" -name "*"${region}"*" \
 | parallel --bar python3 "${scripts}"/remove_empty_fasta_entries.py {}
-rm "${trimmed}"/fasta/*.fasta
-rename 's/\.clean//' "${trimmed}"/fasta/*.clean
+rm "${baseDir}"/fasta/*.fasta
+rename 's/\.clean//' "${baseDir}"/fasta/*.clean
 
 
 #############
@@ -340,7 +328,7 @@ validate_mapping_file.py \
 #Add qiime labels to fasta files
 add_qiime_labels.py \
   -m "${qiime_metadata}"/metadata.tsv \
-  -i "${trimmed}"/fasta \
+  -i "${baseDir}"/fasta \
   -c "InputFileName" \
   -o "$qiime_fasta" \
   --verbose
@@ -411,6 +399,9 @@ source deactivate
 #   RDP   #
 #         #
 ###########
+
+
+#######  This section is just for COI  ##########
 
 
 # Classify reads using Terri's trained database
